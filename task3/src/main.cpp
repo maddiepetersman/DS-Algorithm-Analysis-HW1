@@ -53,8 +53,8 @@ int interpolationSearch(int a[], int n, int key, int &probes) {
 int main() {
     srand(time(0));
 
-    int sizes[] = {100, 1000, 5000, 10000, 50000};
-    int numSizes = 4;
+    int sizes[] = {50, 100, 500, 1000, 5000, 10000, 50000, 100000, 1000000, 5000000};
+    int numSizes = 10;
 
     for (int s = 0; s < numSizes; s++) {
         int n = sizes[s];
