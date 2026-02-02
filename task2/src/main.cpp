@@ -40,11 +40,6 @@ int main() {
     try {
         string ans = to_base(p, b);
         cout << "\nResult: " << p << " in base " << b << " = " << ans << "\n\n";
-        cout << "Big-O Analysis:\n";
-        cout << "  Each iteration divides p by b, producing one digit.\n";
-        cout << "  Number of digits is about log_b(p).\n";
-        cout << "  Time Complexity: O(log_b(p))\n";
-        cout << "  Space Complexity: O(log_b(p)) for the output string.\n";
     } catch (const exception& e) {
         cout << "Error: " << e.what() << "\n";
     }
