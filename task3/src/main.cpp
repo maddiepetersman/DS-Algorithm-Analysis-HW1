@@ -1,123 +1,130 @@
 #include <iostream>
-#include <vector>
-#include <string>
 #include <iomanip>
-#include <algorithm>    // for sort, reverse
-#include <random>       // for mt19937, uniform_int_distribution
+#include <algorithm>   // sort
+#include <random>      // mt19937, uniform_int_distribution
 #include <chrono>
-#include <functional>   // for std::function
-#include <cmath>        // for double arithmetic
 
 using namespace std;
 
-// --- Structures ---
-struct SearchResult {
-    int index;                 // -1 if not found
-    unsigned long long probes; // iterations/probes performed
-};
-
-struct BenchSummary {
-    double avg_ns;
-    double avg_probes;
-    double found_rate;
-};
-
-// --- Search Functions ---
-SearchResult binary_search_custom(const vector<int>& a, int key) {
-    long long lo = 0, hi = (long long)a.size() - 1;
-    unsigned long long probes = 0;
+// ------------------------------------------------------------
+// Search Functions (return index, -1 if not found)
+// probes is passed by reference so we can count iterations
+// ------------------------------------------------------------
+int binary_search_custom(const int a[], int n, int key, int& probes) {
+    int lo = 0, hi = n - 1;
+    probes = 0;
 
     while (lo <= hi) {
         probes++;
-        long long mid = lo + (hi - lo) / 2;
-        if (a[mid] == key) return {(int)mid, probes};
+        int mid = lo + (hi - lo) / 2;
+
+        if (a[mid] == key) return mid;
         if (a[mid] < key) lo = mid + 1;
         else hi = mid - 1;
     }
-    return {-1, probes};
+    return -1;
 }
 
-SearchResult interpolation_search_custom(const vector<int>& a, int key) {
-    long long lo = 0, hi = (long long)a.size() - 1;
-    unsigned long long probes = 0;
+int interpolation_search_custom(const int a[], int n, int key, int& probes) {
+    int lo = 0, hi = n - 1;
+    probes = 0;
 
     while (lo <= hi && key >= a[lo] && key <= a[hi]) {
         probes++;
 
-        if (a[hi] == a[lo]) { // avoid divide by zero
-            if (a[lo] == key) return {(int)lo, probes};
-            else return {-1, probes};
+        // avoid divide by zero if all values in range are the same
+        if (a[hi] == a[lo]) {
+            if (a[lo] == key) return lo;
+            return -1;
         }
 
-        long long pos = lo + (long long)((double)(hi - lo) * (key - a[lo]) / (a[hi] - a[lo]));
+        // estimate the likely position
+        int pos = lo + (int)((double)(hi - lo) * (key - a[lo]) / (a[hi] - a[lo]));
+
+        // clamp pos just in case rounding pushes it outside bounds
         if (pos < lo) pos = lo;
         if (pos > hi) pos = hi;
 
-        if (a[pos] == key) return {(int)pos, probes};
+        if (a[pos] == key) return pos;
         if (a[pos] < key) lo = pos + 1;
         else hi = pos - 1;
     }
-    return {-1, probes};
+
+    return -1;
 }
 
-// --- Array Generators ---
-vector<int> make_uniformish(size_t n, mt19937& rng) {
-    uniform_int_distribution<int> dist(0, 50000000);
-    vector<int> a(n);
-    for (size_t i = 0; i < n; ++i) a[i] = dist(rng);
-    sort(a.begin(), a.end());
-    return a;
+// ------------------------------------------------------------
+// Array generation
+// ------------------------------------------------------------
+void fill_random(int a[], int n, mt19937& rng, int maxValue) {
+    uniform_int_distribution<int> dist(0, maxValue);
+    for (int i = 0; i < n; i++) a[i] = dist(rng);
 }
 
-vector<int> make_clustered(size_t n, mt19937& rng) {
-    uniform_int_distribution<int> dist(0, 1000);
-    vector<int> a(n);
-    for (size_t i = 0; i < n; ++i) a[i] = dist(rng);
-    sort(a.begin(), a.end());
-    return a;
-}
+// ------------------------------------------------------------
+// Benchmark one search method
+// Keeps timing style very similar to your original bench_one()
+// ------------------------------------------------------------
+void bench_one(const int a[], int n, mt19937& rng,
+               bool useInterpolation,
+               int queries,
+               long long& avg_ns_out,
+               double& avg_probes_out,
+               double& found_rate_out) {
 
-// --- Benchmark ---
-BenchSummary bench_one(const vector<int>& a, mt19937& rng,
-                       function<SearchResult(const vector<int>&, int)> searchFn,
-                       int queries) {
-    uniform_int_distribution<int> pickIndex(0, (int)a.size() - 1);
+    uniform_int_distribution<int> pickIndex(0, n - 1);
     uniform_int_distribution<int> coin(0, 1);
     uniform_int_distribution<int> outside(60000000, 80000000);
 
     volatile int sink = 0;
-    unsigned long long total_probes = 0;
+    int total_probes = 0;
     int found = 0;
 
     auto t1 = chrono::high_resolution_clock::now();
+
     for (int i = 0; i < queries; ++i) {
         int key;
-        if (coin(rng) == 0) key = a[pickIndex(rng)]; // present
-        else key = outside(rng);                     // likely absent
 
-        auto r = searchFn(a, key);
-        total_probes += r.probes;
-        if (r.index != -1) found++;
-        sink ^= (r.index + 1);
+        // half the time pick a value that exists in the array
+        // half the time pick a value likely not in the array
+        if (coin(rng) == 0) key = a[pickIndex(rng)];
+        else key = outside(rng);
+
+        int probes = 0;
+        int index;
+
+        if (!useInterpolation)
+            index = binary_search_custom(a, n, key, probes);
+        else
+            index = interpolation_search_custom(a, n, key, probes);
+
+        total_probes += probes;
+        if (index != -1) found++;
+        sink ^= (index + 1);
     }
+
     auto t2 = chrono::high_resolution_clock::now();
     auto ns = chrono::duration_cast<chrono::nanoseconds>(t2 - t1).count();
 
+    // prevent compiler optimizing everything away
     if (sink == 1234567) cerr << sink << "\n";
 
-    BenchSummary s;
-    s.avg_ns = (double)ns / (double)queries;
-    s.avg_probes = (double)total_probes / (double)queries;
-    s.found_rate = (double)found / (double)queries;
-    return s;
+    avg_ns_out = (long long)(ns / queries);
+    avg_probes_out = (double)total_probes / queries;
+    found_rate_out = (double)found / queries;
 }
 
-// --- Run Suite ---
-void run_suite(const string& label,
-               function<vector<int>(size_t, mt19937&)> gen) {
+// ------------------------------------------------------------
+// Run suite for different sizes
+// Still prints the same table style
+// ------------------------------------------------------------
+void run_suite(const string& label, int maxValue) {
     mt19937 rng(12345);
 
-    vector<size_t> sizes = {1000, 5000, 10000, 50000, 100000, 250000, 500000};
+    // no vector, just a plain array of sizes
+    const int sizes[] = {1000, 5000, 10000, 50000, 100000, 250000, 500000};
+    const int NUM_SIZES = sizeof(sizes) / sizeof(sizes[0]);
+
     const int QUERIES = 20000;
 
     cout << "\n==== " << label << " ====\n";
@@ -132,20 +139,32 @@ void run_suite(const string& label,
          << "\n";
     cout << string(110, '-') << "\n";
 
-    for (size_t n : sizes) {
-        auto a = gen(n, rng);
+    for (int si = 0; si < NUM_SIZES; si++) {
+        int n = sizes[si];
 
-        auto bin = bench_one(a, rng, binary_search_custom, QUERIES);
-        auto itp = bench_one(a, rng, interpolation_search_custom, QUERIES);
+        // allocate plain array
+        int* a = new int[n];
+
+        fill_random(a, n, rng, maxValue);
+        sort(a, a + n);
+
+        long long bin_ns, itp_ns;
+        double bin_probes, itp_probes;
+        double bin_found, itp_found;
+
+        bench_one(a, n, rng, false, QUERIES, bin_ns, bin_probes, bin_found);
+        bench_one(a, n, rng, true,  QUERIES, itp_ns, itp_probes, itp_found);
 
         cout << setw(10) << n
-             << setw(18) << (long long)bin.avg_ns
-             << setw(18) << (long long)itp.avg_ns
-             << setw(18) << fixed << setprecision(2) << bin.avg_probes
-             << setw(18) << fixed << setprecision(2) << itp.avg_probes
-             << setw(14) << fixed << setprecision(2) << bin.found_rate
-             << setw(14) << fixed << setprecision(2) << itp.found_rate
+             << setw(18) << bin_ns
+             << setw(18) << itp_ns
+             << setw(18) << fixed << setprecision(2) << bin_probes
+             << setw(18) << fixed << setprecision(2) << itp_probes
+             << setw(14) << fixed << setprecision(2) << bin_found
+             << setw(14) << fixed << setprecision(2) << itp_found
              << "\n";
+
+        delete[] a;
     }
 
     cout << "\nNotes:\n";
@@ -154,7 +173,9 @@ void run_suite(const string& label,
     cout << "  but can degrade toward O(n) behavior on clustered / skewed data (or many duplicates).\n";
 }
 
-// --- Main ---
+// ------------------------------------------------------------
+// Main
+// ------------------------------------------------------------
 int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
@@ -163,8 +184,9 @@ int main() {
     cout << "Generates sorted arrays of various sizes and benchmarks both searches.\n";
     cout << "Outputs average time (ns/query) and average probes.\n";
 
-    run_suite("Uniform-ish (wide range random)", make_uniformish);
-    run_suite("Clustered (narrow range random, many duplicates)", make_clustered);
+    // two distributions (same idea as before)
+    run_suite("Uniform-ish (wide range random)", 50000000);
+    run_suite("Clustered (narrow range random, many duplicates)", 1000);
 
     return 0;
 }
