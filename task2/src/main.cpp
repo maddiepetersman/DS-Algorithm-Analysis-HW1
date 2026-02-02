@@ -6,16 +6,17 @@
 using namespace std;
 
 // Convert positive integer p to base b (2..36)
-string to_base(unsigned long long p, int b) {
+string to_base(int p, int b) {
     const string digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     if (b < 2 || b > 36) throw invalid_argument("Base must be in [2,36]");
+    if (p < 0) throw invalid_argument("p must be positive");
     if (p == 0) return "0";
 
     string out;
     while (p > 0) {
-        unsigned long long r = p % (unsigned long long)b;
-        out.push_back(digits[(size_t)r]);
-        p /= (unsigned long long)b;
+        int r = p % b;
+        out.push_back(digits[r]);
+        p /= b;
     }
 
     reverse(out.begin(), out.end());
@@ -28,7 +29,7 @@ int main() {
 
     cout << "Program #2: Convert positive integer p to base b (2 <= b <= 36)\n\n";
 
-    unsigned long long p;
+    int p;
     int b;
 
     cout << "Enter p (positive integer): ";
